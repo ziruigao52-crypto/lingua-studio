@@ -1,16 +1,16 @@
 export async function onRequest(context) {
   const url = new URL(context.request.url);
-  const videoId = url.searchParams.get('v');
+  // 同时兼容 v 和 id 参数名，防止前端传参不匹配
+  const videoId = url.searchParams.get('v') || url.searchParams.get('id');
 
   if (!videoId) {
-    return new Response(JSON.stringify({ error: 'Missing video ID' }), {
+    return new Response(JSON.stringify({ error: 'Missing video ID', receivedUrl: context.request.url }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' }
     });
   }
 
   try {
-    // 方案：直接请求 YouTube 播放页面的 HTML 并稳健提取 captionTracks
     const ytRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -20,25 +20,12 @@ export async function onRequest(context) {
 
     const html = await ytRes.text();
     
-    // 提取 playerResponse JSON
-    const match = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});<\/script>/) || html.match(/"captions":\s*(\{[^n].+?\})\s*,\s*"videoDetails"/);
-    
     let captionTracks = null;
-    if (match) {
+    const trackMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
+    if (trackMatch) {
       try {
-        const data = JSON.parse(match[1]);
-        captionTracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || data?.playerCaptionsTracklistRenderer?.captionTracks;
+        captionTracks = JSON.parse(trackMatch[1]);
       } catch (e) {}
-    }
-
-    // 如果常规正则未命中，尝试备用正则匹配 captionTracks
-    if (!captionTracks) {
-      const trackMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
-      if (trackMatch) {
-        try {
-          captionTracks = JSON.parse(trackMatch[1]);
-        } catch (e) {}
-      }
     }
 
     if (!captionTracks || captionTracks.length === 0) {
