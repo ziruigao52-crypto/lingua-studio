@@ -10,14 +10,15 @@ export async function onRequest(context) {
   }
 
   try {
-    // 调用完全免费且稳定的公开字幕解析代理接口
-    const apiRes = await fetch(`https://corsproxy.io/?` + encodeURIComponent(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`));
+    // 使用 allorigins 代理服务获取 YouTube 字幕
+    const targetUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`;
+    const proxyRes = await fetch(`https://api.allorigins.win/raw?url=` + encodeURIComponent(targetUrl));
     
-    if (!apiRes.ok) {
-      throw new Error('Failed to fetch from subtitle proxy');
+    if (!proxyRes.ok) {
+      throw new Error('Proxy failed to fetch transcript');
     }
 
-    const data = await apiRes.json();
+    const data = await proxyRes.json();
     return new Response(JSON.stringify(data), {
       headers: { 
         'Content-Type': 'application/json',
@@ -26,7 +27,7 @@ export async function onRequest(context) {
     });
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: 'Failed to fetch captions. Please ensure the video has closed captions enabled.' }), {
+    return new Response(JSON.stringify({ error: 'Failed to fetch captions from YouTube.' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
