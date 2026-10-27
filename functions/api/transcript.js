@@ -10,26 +10,43 @@ export async function onRequest(context) {
   }
 
   try {
-    const listRes = await fetch(`https://video.google.com/timedtext?type=list&v=${videoId}`, {
+    // 调用 YouTube 官方前端实际使用的 Innertube API 获取播放详情（包含字幕轨道）
+    const innertubeRes = await fetch('https://www.youtube.com/youtubei/v1/player', {
+      method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-      }
+      },
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: 'WEB',
+            clientVersion: '2.20240101.00.00'
+          }
+        },
+        videoId: videoId
+      })
     });
-    const listXml = await listRes.text();
 
-    const langMatches = [...listXml.matchAll(/lang_code="([^"]+)"/g)];
-    const langs = langMatches.map(m => m[1]);
+    if (!innertubeRes.ok) {
+      throw new Error('Failed to connect to YouTube API');
+    }
 
-    if (langs.length === 0) {
+    const data = await innertubeRes.json();
+    const captionTracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+
+    if (!captionTracks || captionTracks.length === 0) {
       return new Response(JSON.stringify({ error: 'No captions found for this video' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' }
       });
     }
 
-    const targetLang = langs.find(l => l.startsWith('en')) || langs[0];
+    // 优先匹配英文字幕，没有则取第一个
+    const track = captionTracks.find(t => t.languageCode && t.languageCode.startsWith('en')) || captionTracks[0];
 
-    const transcriptRes = await fetch(`https://video.google.com/timedtext?lang=${targetLang}&v=${videoId}&fmt=json3`, {
+    // 请求结构化的 json3 格式字幕
+    const transcriptRes = await fetch(track.baseUrl + '&fmt=json3', {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
       }
