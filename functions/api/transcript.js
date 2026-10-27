@@ -10,54 +10,75 @@ export async function onRequest(context) {
   }
 
   try {
-    // 使用更逼真的移动端/桌面端 User-Agent，并尝试直接获取 YouTube 内部 player 接口数据
+    // 1. 先获取视频页面的 playerResponse 数据
     const ytRes = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=en`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cookie': 'CONSENT=YES+cb.20210328-17-p0.en+FX+410'
+        'Accept-Language': 'en-US,en;q=0.9'
       }
     });
 
     const html = await ytRes.text();
     
     let captionTracks = null;
-    const trackMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
-    if (trackMatch) {
+    
+    // 尝试正则匹配 ytInitialPlayerResponse
+    const playerMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});<\/script>/);
+    if (playerMatch) {
       try {
-        captionTracks = JSON.parse(trackMatch[1]);
+        const playerJson = JSON.parse(playerMatch[1]);
+        captionTracks = playerJson?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
       } catch (e) {}
     }
 
-    // 备用方案：如果页面直连没抓到，尝试从 playerResponse 中解析
+    // 如果上面没抓到，尝试匹配 captionTracks
     if (!captionTracks) {
-      const playerMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});<\/script>/);
-      if (playerMatch) {
+      const trackMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
+      if (trackMatch) {
         try {
-          const playerJson = JSON.parse(playerMatch[1]);
-          captionTracks = playerJson?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+          captionTracks = JSON.parse(trackMatch[1]);
         } catch (e) {}
       }
     }
 
+    // 如果仍然没有，尝试通过 YouTube 的 timedtext 列表接口直接查询
     if (!captionTracks || captionTracks.length === 0) {
-      return new Response(JSON.stringify({ error: 'No captions found for this video. YouTube might be blocking the server IP.' }), {
+      const listRes = await fetch(`https://www.youtube.com/api/timedtext?type=list&v=${videoId}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      });
+      const listXml = await listRes.text();
+      
+      // 从 XML 中提取字幕轨道
+      const langMatches = [...listXml.matchAll(/lang_code="([^"]+)"/g)];
+      if (langMatches.length > 0) {
+        captionTracks = langMatches.map(m => ({
+          languageCode: m[1],
+          baseUrl: `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${m[1]}&fmt=json3`
+        }));
+      }
+    }
+
+    if (!captionTracks || captionTracks.length === 0) {
+      return new Response(JSON.stringify({ error: 'No captions found. This video might not have public closed captions enabled.' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' }
       });
     }
 
-    // 优先选择英文字幕
+    // 优先选择英文（en）字幕，如果没有则取第一个
     const track = captionTracks.find(t => t.languageCode && t.languageCode.startsWith('en')) || captionTracks[0];
+    const targetUrl = track.baseUrl.includes('fmt=json3') ? track.baseUrl : (track.baseUrl + '&fmt=json3');
 
-    const transcriptRes = await fetch(track.baseUrl + '&fmt=json3', {
+    const transcriptRes = await fetch(targetUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       }
     });
 
     if (!transcriptRes.ok) {
-      throw new Error('Failed to fetch transcript track data');
+      throw new Error('Failed to fetch transcript content from YouTube');
     }
 
     const transcriptJson = await transcriptRes.json();
@@ -66,7 +87,7 @@ export async function onRequest(context) {
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message || 'Server error' }), {
+    return new Response(JSON.stringify({ error: err.message || 'Server error fetching transcript' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
