@@ -10,25 +10,28 @@ export async function onRequest(context) {
   }
 
   try {
-    // 使用 allorigins 代理服务获取 YouTube 字幕
-    const targetUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`;
-    const proxyRes = await fetch(`https://api.allorigins.win/raw?url=` + encodeURIComponent(targetUrl));
-    
-    if (!proxyRes.ok) {
-      throw new Error('Proxy failed to fetch transcript');
+    // 尝试通过内置的公共解析通道直接获取标准字幕
+    const response = await fetch(`https://www.youtube.com/api/timedtext?lang=en&v=${videoId}&fmt=json3`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Caption not found');
     }
 
-    const data = await proxyRes.json();
+    const data = await response.json();
     return new Response(JSON.stringify(data), {
       headers: { 
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*' 
       }
     });
-
   } catch (err) {
-    return new Response(JSON.stringify({ error: 'Failed to fetch captions from YouTube.' }), {
-      status: 500,
+    // 如果没有英文字幕，返回友好的提示
+    return new Response(JSON.stringify({ error: 'No accessible English captions were found for this video.' }), {
+      status: 404,
       headers: { 'Content-Type': 'application/json' }
     });
   }
