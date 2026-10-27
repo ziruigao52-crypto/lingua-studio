@@ -708,18 +708,65 @@ footer {text-align:center;color:var(--muted);font-size:11px;padding:30px 10px}
 </script>
 </body>
 <script>
+  /**
+   * 渲染 YouTube 逐字稿到右侧面板
+   */
+  function renderTranscript(data) {
+    const container = document.getElementById('transcript-container') || document.querySelector('.transcript-list');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!data || !data.events || data.events.length === 0) {
+      container.innerHTML = '<div class="text-gray-400 p-4 text-center">Transcript unavailable.</div>';
+      return;
+    }
+
+    data.events.forEach(event => {
+      if (!event.segs) return;
+      const text = event.segs.map(seg => seg.utf8 || '').join('');
+      if (!text.trim() || text === '\n') return;
+
+      const startMs = parseInt(event.tStartMs || 0, 10);
+      const totalSeconds = Math.floor(startMs / 1000);
+      const mins = Math.floor(totalSeconds / 60);
+      const secs = totalSeconds % 60;
+      const timeFormatted = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+
+      const item = document.createElement('div');
+      item.className = 'transcript-item p-2 rounded hover:bg-gray-800/60 cursor-pointer flex gap-3 transition-colors text-sm mb-1';
+      item.innerHTML = `
+        <span class="text-amber-400 font-mono text-xs select-none shrink-0">${timeFormatted}</span>
+        <span class="text-gray-200 leading-relaxed">${text}</span>
+      `;
+      container.appendChild(item);
+    });
+  }
+
+  // 拦截全局 fetch 请求以自动填充字幕
   const originalFetch = window.fetch;
   window.fetch = async function(url, options) {
-    if (typeof url === "string" && url.includes("/api/transcript") && !url.includes("?")) {
+    if (typeof url === "string" && url.includes("/api/transcript") && !url.includes("v=")) {
       const input = document.querySelector("input");
       const val = input ? input.value : "";
-      const match = val.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/) || [null, val];
-      const videoId = match[1] || val;
+      const match = val.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+      const videoId = match ? match[1] : val;
       if (videoId) {
         url = `/api/transcript?v=${videoId}`;
       }
     }
-    return originalFetch.apply(this, arguments);
+    
+    // 执行原始请求并自动获取结果进行渲染
+    const response = await originalFetch.apply(this, arguments);
+    if (typeof url === "string" && url.includes("/api/transcript")) {
+      try {
+        const clone = response.clone();
+        const data = await clone.json();
+        renderTranscript(data);
+      } catch (e) {
+        console.error("Failed to render transcript:", e);
+      }
+    }
+    return response;
   };
 </script>
 </html>
