@@ -707,4 +707,19 @@ footer {text-align:center;color:var(--muted);font-size:11px;padding:30px 10px}
 })();
 </script>
 </body>
+<script>
+  const originalFetch = window.fetch;
+  window.fetch = async function(url, options) {
+    if (typeof url === "string" && url.includes("/api/transcript") && !url.includes("?")) {
+      const input = document.querySelector("input");
+      const val = input ? input.value : "";
+      const match = val.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/) || [null, val];
+      const videoId = match[1] || val;
+      if (videoId) {
+        url = `/api/transcript?v=${videoId}`;
+      }
+    }
+    return originalFetch.apply(this, arguments);
+  };
+</script>
 </html>
