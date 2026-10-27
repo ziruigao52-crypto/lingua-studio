@@ -10,30 +10,36 @@ export async function onRequest(context) {
   }
 
   try {
-    // 调用 YouTube 官方前端实际使用的 Innertube API 获取播放详情（包含字幕轨道）
-    const innertubeRes = await fetch('https://www.youtube.com/youtubei/v1/player', {
-      method: 'POST',
+    // 方案：直接请求 YouTube 播放页面的 HTML 并稳健提取 captionTracks
+    const ytRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
       headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-      },
-      body: JSON.stringify({
-        context: {
-          client: {
-            clientName: 'WEB',
-            clientVersion: '2.20240101.00.00'
-          }
-        },
-        videoId: videoId
-      })
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+      }
     });
 
-    if (!innertubeRes.ok) {
-      throw new Error('Failed to connect to YouTube API');
+    const html = await ytRes.text();
+    
+    // 提取 playerResponse JSON
+    const match = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});<\/script>/) || html.match(/"captions":\s*(\{[^n].+?\})\s*,\s*"videoDetails"/);
+    
+    let captionTracks = null;
+    if (match) {
+      try {
+        const data = JSON.parse(match[1]);
+        captionTracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || data?.playerCaptionsTracklistRenderer?.captionTracks;
+      } catch (e) {}
     }
 
-    const data = await innertubeRes.json();
-    const captionTracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    // 如果常规正则未命中，尝试备用正则匹配 captionTracks
+    if (!captionTracks) {
+      const trackMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
+      if (trackMatch) {
+        try {
+          captionTracks = JSON.parse(trackMatch[1]);
+        } catch (e) {}
+      }
+    }
 
     if (!captionTracks || captionTracks.length === 0) {
       return new Response(JSON.stringify({ error: 'No captions found for this video' }), {
@@ -42,18 +48,16 @@ export async function onRequest(context) {
       });
     }
 
-    // 优先匹配英文字幕，没有则取第一个
     const track = captionTracks.find(t => t.languageCode && t.languageCode.startsWith('en')) || captionTracks[0];
 
-    // 请求结构化的 json3 格式字幕
     const transcriptRes = await fetch(track.baseUrl + '&fmt=json3', {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       }
     });
 
     if (!transcriptRes.ok) {
-      throw new Error('Failed to download transcript track');
+      throw new Error('Failed to fetch transcript file');
     }
 
     const transcriptJson = await transcriptRes.json();
@@ -62,7 +66,7 @@ export async function onRequest(context) {
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message || 'Failed to fetch transcript' }), {
+    return new Response(JSON.stringify({ error: err.message || 'Server error fetching transcript' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
