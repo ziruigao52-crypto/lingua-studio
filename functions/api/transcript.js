@@ -10,39 +10,45 @@ export async function onRequest(context) {
   }
 
   try {
-    // 使用公开稳定的 youtube transcript 代理/API 接口，完美绕过 Cloudflare IP 限制
-    const apiRes = await fetch(`https://timedtext.youtube.com/api/timedtext?lang=en&v=${videoId}`);
-    
-    // 如果直接抓取成功，转换为 json3 格式
-    // 也可以使用诸如 ytsubs 或外部稳定开源解析
-    const response = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+    // 1. 先通过 YouTube 官方的公开字幕列表接口获取该视频可用的字幕轨道列表
+    const listRes = await fetch(`https://video.google.com/timedtext?type=list&v=${videoId}`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
       }
     });
-    const html = await response.text();
+    const listXml = await listRes.text();
 
-    const match = html.match(/"captionTracks":\s*(\[.*?\])/);
-    if (!match) {
+    // 从 XML 中匹配语言代码（优先找 en 或以 en 开头的英语字幕）
+    const langMatches = [...listXml.matchAll(/lang_code="([^"]+)"/g)];
+    const langs = langMatches.map(m => m[1]);
+
+    if (langs.length === 0) {
       return new Response(JSON.stringify({ error: 'No captions found for this video' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' }
       });
     }
 
-    const captionTracks = JSON.parse(match[1]);
-    const track = captionTracks.find(t => t.languageCode.startsWith('en')) || captionTracks[0];
-    
-    // 加上fmt=json3获取结构化字幕
-    const transcriptRes = await fetch(track.baseUrl + '&fmt=json3');
+    const targetLang = langs.find(l => l.startsWith('en')) || langs[0];
+
+    // 2. 直接请求该语言的结构化 JSON3 字幕数据
+    const transcriptRes = await fetch(`https://www.youtube.com/api/timedtext?lang=${targetLang}&v=${videoId}&fmt=json3`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+      }
+    });
+
+    if (!transcriptRes.ok) {
+      throw new Response(JSON.stringify({ error: 'Failed to download transcript track' }));
+    }
+
     const transcriptJson = await transcriptRes.json();
 
     return new Response(JSON.stringify(transcriptJson), {
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (err) {
-    // 备用兜底：若解析失败，返回友好的错误提示
-    return new Response(JSON.stringify({ error: 'Failed to fetch transcript. Please try another video.' }), {
+    return new Response(JSON.stringify({ error: err.message || 'Failed to fetch transcript' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
