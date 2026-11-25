@@ -1,113 +1,228 @@
-<script>
-  /**
-   * 1. 渲染统一格式的逐字稿到右侧面板
-   */
-  function renderTranscript(data) {
-    const container = document.getElementById('transcript-container') || document.querySelector('.transcript-list');
-    if (!container) return;
-    container.innerHTML = '';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lingua - Video English Studio</title>
+  <!-- 引入 Tailwind CSS 样式库 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col">
+  <!-- 顶部导航 -->
+  <header class="border-b border-gray-800 px-6 py-4 flex justify-between items-center">
+    <div class="flex items-center gap-2">
+      <span class="text-xl font-black tracking-wider text-amber-400">LINGUA.</span>
+    </div>
+    <div class="text-xs text-gray-400 font-mono">VIDEO ENGLISH STUDIO</div>
+  </header>
 
-    if (data && data.error) {
-      container.innerHTML = `<div class="text-amber-400 p-4 text-sm text-center">${data.error}</div>`;
-      return;
+  <!-- 主体内容区域 -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 flex flex-col gap-6">
+    <!-- 标语介绍 -->
+    <section class="flex flex-col gap-2">
+      <h1 class="text-4xl font-extrabold tracking-tight text-white">Learn English in real life.</h1>
+      <p class="text-gray-400 text-sm max-w-2xl">
+        Bring any YouTube, Bilibili video, or media file into your English studio. Read the full available English transcript, follow every timestamp, and save the words that matter.
+      </p>
+    </section>
+
+    <!-- 输入与加载区 -->
+    <div class="flex flex-col gap-2">
+      <div class="flex gap-3">
+        <input 
+          type="text" 
+          placeholder="Paste YouTube, Bilibili URL or media link here..." 
+          class="flex-1 bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-400 transition-colors"
+        />
+        <button class="bg-amber-400 hover:bg-amber-300 text-gray-950 font-semibold px-6 py-3 rounded-lg text-sm transition-colors flex items-center gap-2 shrink-0 cursor-pointer">
+          <span>Load video</span>
+          <span class="text-xs">↗</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 双栏布局：左侧播放器 + 右侧逐字稿 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1">
+      <!-- 左侧：视频播放器 -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col">
+        <div class="flex justify-between items-center mb-3">
+          <span class="text-xs font-mono uppercase tracking-wider text-gray-400">01 / VIDEO PLAYER</span>
+          <span class="text-xs font-mono px-2 py-0.5 rounded bg-gray-800 text-amber-400">MULTI-SOURCE</span>
+        </div>
+        <div id="player-box" class="flex-1 bg-gray-950 rounded-lg flex flex-col items-center justify-center min-h-[360px] text-gray-500 text-center p-6 border border-dashed border-gray-800">
+          <p class="text-base text-gray-400 mb-1">Your next lesson starts here.</p>
+          <p class="text-xs text-gray-500">Paste a video link above.</p>
+        </div>
+      </div>
+
+      <!-- 右侧：逐字稿面板 -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col">
+        <div class="flex justify-between items-center mb-3">
+          <span class="text-xs font-mono uppercase tracking-wider text-gray-400">02 / FULL TRANSCRIPT</span>
+          <span class="text-xs font-mono px-2 py-0.5 rounded bg-gray-800 text-amber-400">ENGLISH</span>
+        </div>
+        
+        <!-- 搜索与工具栏 -->
+        <div class="flex flex-col gap-3 mb-3">
+          <input 
+            type="text" 
+            placeholder="Search words or sentences..." 
+            class="bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+          />
+          <div class="flex items-center justify-between text-xs text-gray-400">
+            <div class="flex gap-2">
+              <button class="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300">Copy all</button>
+              <button class="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300">Export TXT</button>
+            </div>
+            <span id="segment-count">0 segments</span>
+          </div>
+        </div>
+
+        <!-- 逐字稿内容列表 -->
+        <div id="transcript-container" class="flex-1 bg-gray-950 rounded-lg p-3 overflow-y-auto max-h-[400px] border border-gray-800">
+          <div class="text-gray-500 text-center py-16 text-sm">
+            No transcript loaded.<br>
+            <span class="text-xs text-gray-600">Load a video or upload a file to retrieve English captions.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 前端交互与渲染逻辑 -->
+  <script>
+    function renderTranscript(data) {
+      const container = document.getElementById('transcript-container');
+      const countEl = document.getElementById('segment-count');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (data && data.error) {
+        container.innerHTML = `<div class="text-amber-400 p-6 text-sm text-center">${data.error}</div>`;
+        if (countEl) countEl.textContent = '0 segments';
+        return;
+      }
+
+      if (!data || !data.events || data.events.length === 0) {
+        container.innerHTML = '<div class="text-gray-500 p-6 text-center text-sm">暂无可用字幕内容</div>';
+        if (countEl) countEl.textContent = '0 segments';
+        return;
+      }
+
+      if (countEl) countEl.textContent = `${data.events.length} segments`;
+
+      data.events.forEach(event => {
+        if (!event.segs) return;
+        const text = event.segs.map(seg => seg.utf8 || '').join('');
+        if (!text.trim() || text === '\n') return;
+
+        const startMs = parseInt(event.tStartMs || 0, 10);
+        const totalSeconds = Math.floor(startMs / 1000);
+        const mins = Math.floor(totalSeconds / 60);
+        const secs = totalSeconds % 60;
+        const timeFormatted = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+
+        const item = document.createElement('div');
+        item.className = 'p-2 rounded hover:bg-gray-900 cursor-pointer flex gap-3 transition-colors text-sm mb-1';
+        item.innerHTML = `
+          <span class="text-amber-400 font-mono text-xs select-none shrink-0">${timeFormatted}</span>
+          <span class="text-gray-200 leading-relaxed">${text}</span>
+        `;
+        container.appendChild(item);
+      });
     }
 
-    if (!data || !data.events || data.events.length === 0) {
-      container.innerHTML = '<div class="text-gray-400 p-4 text-center">暂无可用字幕内容</div>';
-      return;
-    }
+    function updateVideoPlayer(inputUrl) {
+      const playerBox = document.getElementById('player-box');
+      if (!playerBox) return;
 
-    data.events.forEach(event => {
-      if (!event.segs) return;
-      const text = event.segs.map(seg => seg.utf8 || '').join('');
-      if (!text.trim() || text === '\n') return;
+      const bvMatch = inputUrl.match(/(BV[a-zA-Z0-9]+)/i);
+      if (bvMatch) {
+        const bvid = bvMatch[1];
+        playerBox.innerHTML = `<iframe src="//player.bilibili.com/player.html?bvid=${bvid}&high_quality=1&danmaku=0" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true" class="w-full h-full min-h-[340px] rounded-lg"></iframe>`;
+        return;
+      }
 
-      const startMs = parseInt(event.tStartMs || 0, 10);
-      const totalSeconds = Math.floor(startMs / 1000);
-      const mins = Math.floor(totalSeconds / 60);
-      const secs = totalSeconds % 60;
-      const timeFormatted = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-
-      const item = document.createElement('div');
-      item.className = 'transcript-item p-2 rounded hover:bg-gray-800/60 cursor-pointer flex gap-3 transition-colors text-sm mb-1';
-      item.innerHTML = `
-        <span class="text-amber-400 font-mono text-xs select-none shrink-0">${timeFormatted}</span>
-        <span class="text-gray-200 leading-relaxed">${text}</span>
-      `;
-      container.appendChild(item);
-    });
-  }
-
-  /**
-   * 2. 拦截全局 fetch 请求，实现输入框链接自动向后端发送并渲染
-   */
-  const originalFetch = window.fetch;
-  window.fetch = async function(url, options) {
-    if (typeof url === "string" && url.includes("/api/transcript") && (!options || options.method !== 'POST')) {
-      const input = document.querySelector("input");
-      const val = input ? input.value.trim() : "";
-      if (val) {
-        url = `/api/transcript?url=${encodeURIComponent(val)}`;
+      const ytMatch = inputUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+      const ytId = ytMatch ? ytMatch[1] : (/^[a-zA-Z0-9_-]{11}$/.test(inputUrl) ? inputUrl : null);
+      if (ytId) {
+        playerBox.innerHTML = `<iframe src="https://www.youtube.com/embed/${ytId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen class="w-full h-full min-h-[340px] rounded-lg"></iframe>`;
       }
     }
 
-    const response = await originalFetch.call(this, url, options);
-    if (typeof url === "string" && url.includes("/api/transcript")) {
-      try {
-        const clone = response.clone();
-        const data = await clone.json();
-        renderTranscript(data);
-      } catch (e) {
-        console.error("Failed to parse transcript:", e);
-      }
-    }
-    return response;
-  };
+    window.addEventListener('DOMContentLoaded', () => {
+      const input = document.querySelector('input');
+      const loadBtn = document.querySelector('button');
 
-  /**
-   * 3. 自动在输入框下方注入“上传本地音视频文件”的交互按钮
-   */
-  window.addEventListener('DOMContentLoaded', () => {
-    const input = document.querySelector('input');
-    if (!input || !input.parentElement) return;
+      if (input && loadBtn) {
+        const handleLoad = async () => {
+          const val = input.value.trim();
+          if (!val) return;
 
-    // 避免重复注入
-    if (document.getElementById('local-media-upload')) return;
+          updateVideoPlayer(val);
+          renderTranscript({ error: '正在获取并解析字幕，请稍候...' });
 
-    const uploadWrapper = document.createElement('div');
-    uploadWrapper.className = 'mt-3 flex items-center gap-3 text-xs text-gray-400';
-    uploadWrapper.innerHTML = `
-      <label class="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 text-amber-400 border border-gray-700 transition-colors">
-        <span>📁 上传本地音视频生成字幕 (MP3/MP4/WAV)</span>
-        <input type="file" id="local-media-upload" accept="audio/*,video/*" class="hidden" />
-      </label>
-      <span id="upload-status"></span>
-    `;
-    input.parentElement.parentElement.appendChild(uploadWrapper);
+          try {
+            const res = await fetch(`/api/transcript?url=${encodeURIComponent(val)}`);
+            const data = await res.json();
+            renderTranscript(data);
+          } catch (err) {
+            renderTranscript({ error: '请求失败，请检查网络连接或稍后再试。' });
+          }
+        };
 
-    const fileInput = document.getElementById('local-media-upload');
-    const statusText = document.getElementById('upload-status');
-
-    fileInput.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      statusText.textContent = '正在上传并调用 AI 转写字幕，请稍候...';
-      const formData = new FormData();
-      formData.append('file', file);
-
-      try {
-        const res = await fetch('/api/transcript', {
-          method: 'POST',
-          body: formData
+        loadBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          handleLoad();
         });
-        const data = await res.json();
-        statusText.textContent = res.ok ? '✅ 生成完成' : '❌ 生成失败';
-        renderTranscript(data);
-      } catch (err) {
-        statusText.textContent = '❌ 网络异常';
-        console.error(err);
+
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            handleLoad();
+          }
+        });
+      }
+
+      // 自动在输入框下方注入本地音视频文件上传按钮
+      const inputContainer = document.querySelector('input')?.parentElement?.parentElement;
+      if (inputContainer && !document.getElementById('local-media-upload')) {
+        const uploadWrapper = document.createElement('div');
+        uploadWrapper.className = 'mt-3 flex items-center gap-3 text-xs text-gray-400';
+        uploadWrapper.innerHTML = `
+          <label class="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-gray-900 hover:bg-gray-800 text-amber-400 border border-gray-800 transition-colors">
+            <span>📁 上传本地音视频 AI 生成字幕 (MP3/MP4/WAV)</span>
+            <input type="file" id="local-media-upload" accept="audio/*,video/*" class="hidden" />
+          </label>
+          <span id="upload-status"></span>
+        `;
+        inputContainer.appendChild(uploadWrapper);
+
+        const fileInput = document.getElementById('local-media-upload');
+        const statusText = document.getElementById('upload-status');
+
+        fileInput.addEventListener('change', async (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          statusText.textContent = '正在上传并调用 AI 转写字幕，请稍候...';
+          const formData = new FormData();
+          formData.append('file', file);
+
+          try {
+            const res = await fetch('/api/transcript', {
+              method: 'POST',
+              body: formData
+            });
+            const data = await res.json();
+            statusText.textContent = res.ok ? '✅ 生成完成' : '❌ 生成失败';
+            renderTranscript(data);
+          } catch (err) {
+            statusText.textContent = '❌ 网络异常';
+          }
+        });
       }
     });
-  });
-</script>
+  </script>
+</body>
+</html>
